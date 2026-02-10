@@ -16,4 +16,31 @@ class ChatSession:
     def add_assistant(self, text: str) -> None:
         self.messages.append({"role": "assistant", "content": text})
 
-    
+    def complete(self) -> str:
+        resp = self.client.chat.completions.create(
+            model=self.settings.model,
+            temperature=self.settings.temperature,
+            messages=self.messages,
+            timeout=self.settings.timeout_s,
+        )
+        text = resp.choices[0].message.content or ""
+        self.add_assistant(text)
+        return text
+
+    def stream(self) -> Iterator[str]:
+        resp = self.client.chat.completions.create(
+            model=self.settings.model,
+            temperature=self.settings.temperature,
+            messages=self.messages,
+            stream=True,
+            timeout=self.settings.timeout_s,
+        )
+        chunks = []
+        for event in resp:
+            delta = event.choices[0].delta
+            token = getattr(delta, "content", None)
+            if token:
+                chunks.append(token)
+                yield token
+        full = "".join(chunks)
+        self.add_assistant(full)
