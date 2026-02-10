@@ -7,4 +7,4 @@ class Settings:
     api_key: str = os.getenv("SLM_API_KEY", "notneeded")
     model: str = os.getenv("SLM_MODEL", "gpt-4-0613")
     temperature: float = float(os.getenv("SLM_TEMPERATURE", "0.7"))
-    timeout_s: float = float
+    timeout_s: float = float(os.getenv("SLM_TIMEOUT_S", "60.0"))
