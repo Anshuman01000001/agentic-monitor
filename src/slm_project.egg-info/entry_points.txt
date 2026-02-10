@@ -1,0 +1,2 @@
+[console_scripts]
+slm-chat = slm_project.cli:main

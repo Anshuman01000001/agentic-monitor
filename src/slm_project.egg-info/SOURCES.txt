@@ -1,0 +1,14 @@
+README.md
+pyproject.toml
+src/__init__.py
+src/chat.py
+src/cli.py
+src/client.py
+src/config.py
+src/slm_project.egg-info/PKG-INFO
+src/slm_project.egg-info/SOURCES.txt
+src/slm_project.egg-info/dependency_links.txt
+src/slm_project.egg-info/entry_points.txt
+src/slm_project.egg-info/requires.txt
+src/slm_project.egg-info/top_level.txt
+tests/test_smoke.py
