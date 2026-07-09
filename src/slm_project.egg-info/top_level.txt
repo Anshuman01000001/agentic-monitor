@@ -1,5 +1,0 @@
-__init__
-chat
-cli
-client
-config
