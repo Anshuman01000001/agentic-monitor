@@ -16,13 +16,13 @@ async def _call_ollama_prompt(prompt: str) -> str:
         client = Ollama(base_url=settings.OLLAMA_BASE_URL)
         # many Ollama clients provide a `generate` or `create` API; try common names
         if hasattr(client, "generate"):
-            resp = client.generate(model=settings.OLLAMA_MODEL, prompt=prompt)
+            resp = client.generate(model=settings.SLM_MODEL, prompt=prompt)
             # resp may be a dict or have a 'content' attribute
             if isinstance(resp, dict):
                 return resp.get("content") or json.dumps(resp)
             return getattr(resp, "content", str(resp))
         elif hasattr(client, "create"):
-            resp = client.create(model=settings.OLLAMA_MODEL, prompt=prompt)
+            resp = client.create(model=settings.SLM_MODEL, prompt=prompt)
             return getattr(resp, "content", str(resp))
     except Exception:
         logger.debug("ollama python client unavailable or failed, falling back to HTTP", exc_info=True)
@@ -32,7 +32,7 @@ async def _call_ollama_prompt(prompt: str) -> str:
         import requests
 
         url = settings.OLLAMA_BASE_URL.rstrip("/") + "/api/generate"
-        payload = {"model": settings.OLLAMA_MODEL, "prompt": prompt}
+        payload = {"model": settings.SLM_MODEL, "prompt": prompt}
         r = requests.post(url, json=payload, timeout=10)
         r.raise_for_status()
         return r.text

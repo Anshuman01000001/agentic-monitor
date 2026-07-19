@@ -1,6 +1,7 @@
 import logging
 import time
 import os
+import json
 from typing import Union
 from config.settings import settings
 
@@ -80,6 +81,40 @@ def _call_openai(prompt: str, max_retries: int = 3) -> str:
     raise RuntimeError("OpenAI API failed after retries")
 
 
+def _call_local_llm(prompt: str, max_retries: int = 3) -> str:
+    """Call a local Ollama-compatible model such as MinMax 3.0."""
+    backoff = 1
+    last_exception = None
+    for attempt in range(max_retries):
+        try:
+            try:
+                from ollama import Ollama
+                client = Ollama(base_url=settings.OLLAMA_BASE_URL)
+                if hasattr(client, "generate"):
+                    resp = client.generate(model=settings.LLM_MODEL, prompt=prompt)
+                elif hasattr(client, "create"):
+                    resp = client.create(model=settings.LLM_MODEL, prompt=prompt)
+                else:
+                    raise RuntimeError("Unsupported Ollama client API")
+
+                if isinstance(resp, dict):
+                    return resp.get("content") or json.dumps(resp)
+                return getattr(resp, "content", str(resp))
+            except Exception:
+                import requests
+                url = settings.OLLAMA_BASE_URL.rstrip("/") + "/api/generate"
+                payload = {"model": settings.LLM_MODEL, "prompt": prompt}
+                r = requests.post(url, json=payload, timeout=10)
+                r.raise_for_status()
+                return r.text
+        except Exception as e:
+            last_exception = e
+            logger.warning("Local LLM call failed (attempt %d): %s", attempt + 1, e)
+            time.sleep(backoff)
+            backoff *= 2
+    raise RuntimeError("Local LLM provider failed after retries") from last_exception
+
+
 def generate_alert_text(event: Union[dict, object], rag_context: str) -> str:
     """Generate an alert text using the selected LLM provider. Falls back to a plain alert on failure."""
     prompt = _build_prompt(event, rag_context)
@@ -87,13 +122,13 @@ def generate_alert_text(event: Union[dict, object], rag_context: str) -> str:
     try:
         if provider == "openai":
             text = _call_openai(prompt)
+        elif provider in {"ollama", "minmax", "local"}:
+            text = _call_local_llm(prompt)
         else:
             text = _call_anthropic(prompt)
-        # Ensure string
         return str(text).strip()
     except Exception:
         logger.exception("LLM provider failed; returning fallback alert")
-        # Fallback simple alert
         if isinstance(event, dict):
             ev = event
         else:

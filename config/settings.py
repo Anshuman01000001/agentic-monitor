@@ -12,7 +12,8 @@ class Settings:
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
     OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "phi3")
+    SLM_MODEL = os.getenv("SLM_MODEL", os.getenv("OLLAMA_MODEL", "phi3"))
+    LLM_MODEL = os.getenv("LLM_MODEL", "MinMax-3.0")
 
     SMTP_HOST = os.getenv("SMTP_HOST")
     SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))

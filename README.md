@@ -24,7 +24,7 @@ uvicorn main:app --reload --port 8000
 - Monitor device and website metrics and persist as `Event` records in SQLite
 - Classify events using a local SLM (Ollama) into `normal|warning|critical`
 - Persistent RAG store (ChromaDB) with embeddings from `sentence-transformers` for runbook context
-- LLM alert generation via Anthropic or OpenAI
+- LLM alert generation via Anthropic, OpenAI, or local Ollama-compatible models like MinMax 3.0
 - Escalation orchestration with email notifications and alert storm protection
 
 ## Testing
@@ -39,11 +39,12 @@ Integration tests in `tests/test_integration.py` will be skipped if `SQLAlchemy`
 ## Environment variables
 Create a `.env` file or export these environment variables:
 
-- `LLM_PROVIDER` — `anthropic` (default) or `openai`
+- `LLM_PROVIDER` — `anthropic`, `openai`, or `minmax`
 - `ANTHROPIC_API_KEY` — your Anthropic API key (if using Anthropic)
 - `OPENAI_API_KEY` — your OpenAI API key (if using OpenAI)
-- `OLLAMA_BASE_URL` — URL for local Ollama (default `http://localhost:11434`)
-- `OLLAMA_MODEL` — model name for Ollama (default `phi3`)
+- `OLLAMA_BASE_URL` — URL for local Ollama/MinMax (default `http://localhost:11434`)
+- `SLM_MODEL` — local SLM model for classification (default `phi3`)
+- `LLM_MODEL` — local LLM model for alert generation (default `MinMax-3.0`)
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` — SMTP settings for email
 - `ALERT_EMAIL_TO` — default recipient for alerts
 - `DATABASE_URL` — SQLAlchemy database URL (default `sqlite:///./monitor.db`)
