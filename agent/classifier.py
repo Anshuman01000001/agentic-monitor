@@ -1,5 +1,6 @@
 import logging
 import json
+import re
 import asyncio
 from typing import Union
 from config.settings import settings
@@ -32,8 +33,8 @@ async def _call_ollama_prompt(prompt: str) -> str:
         import requests
 
         url = settings.OLLAMA_BASE_URL.rstrip("/") + "/api/generate"
-        payload = {"model": settings.SLM_MODEL, "prompt": prompt}
-        r = requests.post(url, json=payload, timeout=10)
+        payload = {"model": settings.SLM_MODEL, "prompt": prompt, "stream": False}
+        r = requests.post(url, json=payload, timeout=20)
         r.raise_for_status()
         return r.text
     except Exception:
@@ -44,19 +45,74 @@ async def _call_ollama_prompt(prompt: str) -> str:
 def _extract_json_from_text(text: str) -> Union[dict, None]:
     if not text:
         return None
-    # Try direct parse first
-    try:
-        return json.loads(text)
-    except Exception:
-        pass
-    # Try to find first {...}
+
+    def _try_parse(candidate: str):
+        if not candidate:
+            return None
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+
+        try:
+            candidate = candidate.strip()
+            if candidate.startswith("```"):
+                candidate = re.sub(r"^```(?:json)?\s*", "", candidate, flags=re.IGNORECASE)
+                candidate = re.sub(r"\s*```$", "", candidate)
+            start = candidate.find("{")
+            end = candidate.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                return json.loads(candidate[start : end + 1])
+        except Exception:
+            return None
+        return None
+
+    parsed = _try_parse(text)
+    if parsed and parsed.get("classification") is not None:
+        return parsed
+
+    if isinstance(parsed, dict):
+        for key in ("response", "content", "message"):
+            if isinstance(parsed.get(key), str):
+                nested = _try_parse(parsed[key])
+                if nested and nested.get("classification") is not None:
+                    return nested
+
+    fenced = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, re.DOTALL | re.IGNORECASE)
+    if fenced:
+        parsed = _try_parse(fenced.group(1))
+        if parsed:
+            return parsed
+
+    # Ollama may return newline-delimited JSON objects with a `response` field.
+    response_parts = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            response = payload.get("response")
+            if isinstance(response, str):
+                response_parts.append(response)
+
+    if response_parts:
+        assembled = "".join(response_parts)
+        parsed = _try_parse(assembled)
+        if parsed:
+            return parsed
+
+    # Try to recover a JSON payload embedded inside a larger response string.
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
-        try:
-            return json.loads(text[start : end + 1])
-        except Exception:
-            return None
+        return _try_parse(text[start : end + 1])
+
     return None
 
 
@@ -114,7 +170,7 @@ Respond in JSON only, no other text:
         else:
             session = db.get_session()
         try:
-            ev = session.query(EventModel).get(event.id)
+            ev = session.get(EventModel, event.id)
             if ev:
                 ev.classification = classification
                 ev.confidence = confidence

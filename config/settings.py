@@ -10,6 +10,9 @@ class Settings:
     LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic")
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+    MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY")
+    MINIMAX_API_BASE_URL = os.getenv("MINIMAX_API_BASE_URL", "https://api.minimax.chat/v1")
+    MINIMAX_MODEL = os.getenv("MINIMAX_MODEL", "MiniMax-3.0")
 
     OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     SLM_MODEL = os.getenv("SLM_MODEL", os.getenv("OLLAMA_MODEL", "phi3"))
@@ -22,6 +25,11 @@ class Settings:
     ALERT_EMAIL_TO = os.getenv("ALERT_EMAIL_TO")
 
     MONITOR_DOMAINS = [d.strip() for d in os.getenv("MONITOR_DOMAINS", "").split(",") if d.strip()]
+    # Track which entries are full URLs (with scheme) vs bare domains, so the
+    # website monitor can hit the exact path the user configured.
+    @classmethod
+    def is_full_url(cls, entry: str) -> bool:
+        return "://" in entry
     DEVICE_CHECK_INTERVAL = int(os.getenv("DEVICE_CHECK_INTERVAL", "60"))
     WEBSITE_CHECK_INTERVAL = int(os.getenv("WEBSITE_CHECK_INTERVAL", "300"))
 

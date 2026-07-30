@@ -62,11 +62,9 @@ def init_rag_store(chroma_dir: str):
 
     try:
         import chromadb
-        from chromadb.config import Settings
     except Exception:
         logger.exception("Failed to import chromadb; retrieval will be disabled")
         chromadb = None
-        Settings = None
 
     try:
         if SentenceTransformer:
@@ -78,8 +76,8 @@ def init_rag_store(chroma_dir: str):
         _embedder = None
 
     try:
-        if chromadb and Settings:
-            _client = chromadb.Client(Settings(chroma_db_impl="duckdb+parquet", persist_directory=chroma_dir))
+        if chromadb:
+            _client = chromadb.PersistentClient(path=chroma_dir)
             _collection = _client.get_or_create_collection(name="runbooks")
         else:
             _client = None

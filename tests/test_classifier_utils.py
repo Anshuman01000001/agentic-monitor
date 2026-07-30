@@ -20,6 +20,24 @@ class TestClassifierUtils(unittest.TestCase):
         parsed = classifier._extract_json_from_text(s)
         self.assertIsNone(parsed)
 
+    def test_extract_json_from_ndjson_stream(self):
+        s = '{"model":"phi3","response":"{\\"classification\\":\\"critical\\",\\"confidence\\":0.95,\\"reason\\":\\"cpu high\\"}"}\n{"model":"phi3","response":"\n"}'
+        parsed = classifier._extract_json_from_text(s)
+        self.assertIsInstance(parsed, dict)
+        self.assertEqual(parsed.get("classification"), "critical")
+
+    def test_extract_json_from_code_fenced_response(self):
+        s = '```json\n{"classification": "warning", "confidence": 0.6, "reason": "latency"}\n```'
+        parsed = classifier._extract_json_from_text(s)
+        self.assertIsInstance(parsed, dict)
+        self.assertEqual(parsed.get("classification"), "warning")
+
+    def test_extract_json_from_nested_response_field(self):
+        s = '{"model":"phi3","response":"{\\"classification\\":\\"critical\\",\\"confidence\\":0.95,\\"reason\\":\\"cpu high\\"}"}'
+        parsed = classifier._extract_json_from_text(s)
+        self.assertIsInstance(parsed, dict)
+        self.assertEqual(parsed.get("classification"), "critical")
+
 
 if __name__ == "__main__":
     unittest.main()

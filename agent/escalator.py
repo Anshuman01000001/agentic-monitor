@@ -1,14 +1,15 @@
 import logging
 import asyncio
+import threading
 from datetime import datetime, timedelta
 from typing import Optional
 from config.settings import settings
 from database import db
 from database.models import Event, Alert
-from agent.classifier import classify_event_with_ollama
-from agent.rag import get_runbook_context
-from agent.alert_generator import generate_alert_text
-from notifications.email_notifier import send_email
+from agent import classifier as classifier_mod
+from agent import rag as rag_mod
+from agent import alert_generator as alert_generator_mod
+from notifications import email_notifier
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +22,20 @@ async def _escalate(event: Event, reason: str, runbook_ctx: str, alert_text: str
         if ev:
             ev.escalated = True
             session.add(ev)
-        # send email
-        sent = send_email(subject=f"[ALERT] {event.source_name} {event.metric_name}", html_body=alert_text, to=email_to)
+        # build a human-readable email (structured HTML + plain-text fallback)
+        src = ev or event
+        details = {
+            "source_type": getattr(src, "source_type", ""),
+            "source_name": getattr(src, "source_name", ""),
+            "metric_name": getattr(src, "metric_name", ""),
+            "metric_value": getattr(src, "metric_value", ""),
+            "classification": getattr(src, "classification", None),
+            "confidence": getattr(src, "confidence", None),
+            "timestamp": getattr(src, "timestamp", "").isoformat() if getattr(src, "timestamp", None) else "",
+        }
+        html_body, text_body = email_notifier.render_alert(details, alert_text, runbook_ctx, reason)
+        subject = f"[{(details['classification'] or 'ALERT').upper()}] {event.source_name} — {event.metric_name}"
+        sent = email_notifier.send_email(subject=subject, html_body=html_body, to=email_to, text_body=text_body)
         alert = Alert(
             event_id=event.id,
             alert_text=alert_text,
@@ -46,7 +59,7 @@ async def process_event(event: Event) -> None:
     """
     # Step 1: classify
     try:
-        cls = await classify_event_with_ollama(event)
+        cls = await classifier_mod.classify_event_with_ollama(event)
     except Exception:
         logger.exception("Classifier failed for event %s", getattr(event, "id", None))
         cls = {"classification": "normal", "confidence": 0.0, "reason": "classification error"}
@@ -58,8 +71,8 @@ async def process_event(event: Event) -> None:
 
     # Helper: escalate path
     async def _do_escalation(ev: Event):
-        runbook_ctx = get_runbook_context(f"{ev.source_type} {ev.source_name} {ev.metric_name} {ev.metric_value} {ev.raw_data}")
-        alert_text = generate_alert_text(ev, runbook_ctx)
+        runbook_ctx = rag_mod.get_runbook_context(f"{ev.source_type} {ev.source_name} {ev.metric_name} {ev.metric_value} {ev.raw_data}")
+        alert_text = alert_generator_mod.generate_alert_text(ev, runbook_ctx)
         await _escalate(ev, cls.get("reason", ""), runbook_ctx, alert_text)
 
     # Alert storm prevention: check alerts in last 10 minutes
@@ -92,7 +105,7 @@ async def process_event(event: Event) -> None:
 
         if storms >= 3:
             logger.info("Alert storm detected for %s; sending storm notification and suppressing further alerts", event.source_name)
-            send_email(subject=f"[ALERT STORM] {event.source_name}", html_body=f"Alert storm detected for {event.source_name}. Suppressing further alerts.")
+            email_notifier.send_email(subject=f"[ALERT STORM] {event.source_name}", html_body=f"Alert storm detected for {event.source_name}. Suppressing further alerts.")
             return
 
         # escalate
@@ -104,14 +117,15 @@ async def process_event(event: Event) -> None:
         session = db.get_session()
         try:
             n = settings.CONSECUTIVE_WARNINGS_BEFORE_ALERT
-            recent_events = (
+            required_previous = max(0, n - 1)
+            previous_warnings = (
                 session.query(Event)
-                .filter(Event.source_name == event.source_name)
+                .filter(Event.source_name == event.source_name, Event.id != event.id)
                 .order_by(Event.id.desc())
-                .limit(n)
+                .limit(required_previous)
                 .all()
             )
-            if len(recent_events) >= n and all((e.classification == "warning") for e in recent_events):
+            if len(previous_warnings) >= required_previous and all((e.classification == "warning") for e in previous_warnings):
                 logger.info("%d consecutive warnings for %s — escalating as critical", n, event.source_name)
                 await _do_escalation(event)
                 return
@@ -127,9 +141,35 @@ async def process_event(event: Event) -> None:
 
 
 def process_event_sync(event: Event) -> None:
-    """Synchronous wrapper for use from scheduler threads."""
+    """Synchronous wrapper for use from scheduler threads and async contexts."""
     try:
-        asyncio.run(process_event(event))
-    except Exception:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        try:
+            asyncio.run(process_event(event))
+        except Exception:
+            logger.exception("process_event_sync failed for event %s", getattr(event, "id", None))
+        return
+
+    error: Optional[Exception] = None
+
+    def _run_in_thread() -> None:
+        nonlocal error
+        try:
+            loop = asyncio.new_event_loop()
+            try:
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(process_event(event))
+            finally:
+                loop.close()
+                asyncio.set_event_loop(None)
+        except Exception as exc:
+            error = exc
+
+    thread = threading.Thread(target=_run_in_thread, daemon=True)
+    thread.start()
+    thread.join()
+    if error is not None:
         logger.exception("process_event_sync failed for event %s", getattr(event, "id", None))
+        raise error
 

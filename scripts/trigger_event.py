@@ -8,7 +8,12 @@ Usage examples:
 import argparse
 import json
 import logging
+import os
 import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
 logger = logging.getLogger("trigger_event")
 
@@ -33,6 +38,13 @@ def main():
         sys.exit(2)
 
     db.init_db(getattr(settings, "DATABASE_URL", "sqlite:///./monitor.db"))
+
+    # Initialize the RAG store so the escalator can attach runbook context to alerts.
+    try:
+        from agent.rag import init_rag_store
+        init_rag_store(getattr(settings, "CHROMA_PERSIST_DIR", "./chroma_store"))
+    except Exception:
+        logger.warning("Could not initialize RAG store; alerts will have no runbook context", exc_info=True)
 
     raw_data = {}
     if args.raw:

@@ -41,6 +41,7 @@ def save_event(
         )
         session.add(event)
         session.commit()
+        session.refresh(event)
         logger.debug(
             "Event saved: %s/%s=%s", source_type, metric_name, metric_value
         )
@@ -59,5 +60,41 @@ def get_recent_events(limit: int = 50) -> list:
     try:
         events = session.query(Event).order_by(Event.id.desc()).limit(limit).all()
         return list(reversed(events))
+    finally:
+        session.close()
+
+
+def get_recent_alerts(limit: int = 50) -> list:
+    """Fetch most recent alerts joined with their originating event.
+
+    Returns a list of plain dicts (safe to serialize after the session closes).
+    """
+    from database.models import Alert
+
+    session = db.get_session()
+    try:
+        rows = (
+            session.query(Alert, Event)
+            .outerjoin(Event, Alert.event_id == Event.id)
+            .order_by(Alert.id.desc())
+            .limit(limit)
+            .all()
+        )
+        result = []
+        for alert, event in rows:
+            result.append({
+                "id": alert.id,
+                "timestamp": alert.timestamp.isoformat() if alert.timestamp else None,
+                "event_id": alert.event_id,
+                "source_type": getattr(event, "source_type", None),
+                "source_name": getattr(event, "source_name", None),
+                "metric_name": getattr(event, "metric_name", None),
+                "metric_value": getattr(event, "metric_value", None),
+                "alert_text": alert.alert_text,
+                "runbook_context": alert.runbook_context,
+                "email_sent_to": alert.email_sent_to,
+                "email_sent_at": alert.email_sent_at.isoformat() if alert.email_sent_at else None,
+            })
+        return result
     finally:
         session.close()
