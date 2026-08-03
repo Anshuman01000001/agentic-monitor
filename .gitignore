@@ -28,3 +28,7 @@ chroma_store/
 .DS_Store
 .idea/
 .vscode/
+
+# Claude tooling — local skills and agents docs
+.claude/skills/
+AGENTS.md
